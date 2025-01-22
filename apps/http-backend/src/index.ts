@@ -3,12 +3,14 @@ import Jwt from "jsonwebtoken";
 import { JWT_SECRET } from "@repo/backend-common/config";
 import { middleware } from "./middleware";
 import {CreateUserSchema, CreateRoomSchema, SigninSchema} from "@repo/common/types";
-import {client} from '@repo/db/client'
+import {prismaClient} from '@repo/db/client'
 import bcrypt from 'bcrypt'
 
 const app = express();
 const port = 3001;
-const prisma =  client
+const prisma =  prismaClient
+
+app.use(express.json())
 
 // signup
 app.post('/signup', async (req:Request, res:Response) => {
@@ -20,14 +22,15 @@ app.post('/signup', async (req:Request, res:Response) => {
             message: "Incorrect inputs",
             errors: data.error.errors
         });
+        return
     }
 
     const { username, password } = req.body;
 
     // check if user already exists, if not the save to db
-    const doesExists = await prisma.user.findFirst({
+    const doesExists = await prisma.user.findUnique({
         where:{
-            username: username
+            email: username
         }
     })
 
@@ -35,6 +38,7 @@ app.post('/signup', async (req:Request, res:Response) => {
         res.status(409).json({
             message: "User with this username already exists. Please try another or sign in.",
         });
+        return
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -42,9 +46,9 @@ app.post('/signup', async (req:Request, res:Response) => {
     try {
         const user = await prisma.user.create({
             data: {
-                username: username,
+                email:username,
                 password: hashedPassword,
-                name: req.body.name || "PK's guest",
+                name: req.body.name || "guest",
             },
         });
     
@@ -69,19 +73,21 @@ app.post("/signin", async (req: Request, res: Response) => {
         res.status(400).json({
             message: "Incorrect inputs",
         });
+        return
     } else {
         const { username, password } = req.body;
 
         try {
             // Find user by username
             const user = await prisma.user.findUnique({
-                where: { username },
+                where: { email: username },
             });
 
             if (!user) {
                 res.status(404).json({
                     message: "User not found",
                 });
+                return
             } else {
 
                 // Compare password
@@ -90,6 +96,7 @@ app.post("/signin", async (req: Request, res: Response) => {
                     res.status(401).json({
                         message: "Invalid credentials",
                     });
+                    return
 
                 } else {
                     // Generate JWT
@@ -107,25 +114,46 @@ app.post("/signin", async (req: Request, res: Response) => {
             res.status(500).json({
                 message: "Internal server error",
             });
+            return
         }
     }
 });
 
 
-app.post('/room', middleware, (req: Request, res: Response) => {
-    const data = CreateRoomSchema.safeParse(req.body)
-    if(!data.success){
+app.post('/room', middleware, async (req: Request, res: Response) => {
+    const parsedData = CreateRoomSchema.safeParse(req.body)
+    if(!parsedData.success){
         res.json({
             message: "incorrect Inputs"
         })
         return
     }
-    res.send("hello this is pratik");
-    // db call
 
-    res.json({
-        roomId: 345
-    })
+    const userId = req.userId
+    if (!userId) {
+        res.status(401).json({
+            message: "Unauthorized: User ID is missing",
+        });
+        return
+    }
+
+    try {
+        const room = await prisma.room.create({
+            data: {
+                slug: parsedData.data.name,
+                adminId: userId
+            }
+        })
+
+        res.json({
+            roomId: room.id
+        })
+    } catch(e) {
+        res.status(411).json({
+            message: "Room already exists with this name"
+        })
+        return
+    }
 })
 
 
