@@ -61,7 +61,12 @@ wss.on('connection', function connection(ws, request) {
     ws.on('message', async function message(data) {
         console.log(`recieved the msg: ${data}`)
 
-        const parsedData = JSON.parse(data as unknown as string); // converts string data in json
+        let parsedData;
+        if(typeof data !== "string") {
+            parsedData = JSON.parse(data.toString())
+        }else{
+            parsedData = JSON.parse(data)
+        }
 
         if(parsedData.type === "join_room"){
             //TODO: multile checkes: room exists, permission and all
@@ -86,7 +91,7 @@ wss.on('connection', function connection(ws, request) {
             // TODO: better approach q system (push it to q and then all stuff)
             await prismaClient.chat.create({
                 data:{
-                    roomId,
+                    roomId: Number(roomId),
                     message,
                     userId
                 }
